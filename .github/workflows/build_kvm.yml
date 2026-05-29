@@ -1,0 +1,79 @@
+name: build-kernel-kvm
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Target device"
+        required: true
+        default: "ares"
+        type: choice
+        options:
+          - ares
+          - agate
+      clean:
+        description: "Clean build"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison flex libssl-dev libelf-dev dwarves \
+            rsync zip curl python3 git build-essential \
+            ccache libncurses5-dev xz-utils
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ github.ref_name }}-
+            ${{ runner.os }}-ccache-
+
+      - name: Build kernel
+        env:
+          DEVICE: ${{ inputs.device }}
+          CLEAN_BUILD: ${{ inputs.clean }}
+        run: |
+          chmod +x ./build_kvm.sh
+          if [ "${CLEAN_BUILD}" = "true" ]; then
+            ./build_kvm.sh "${DEVICE}" -c
+          else
+            ./build_kvm.sh "${DEVICE}"
+          fi
+
+      - name: Upload kernel zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: HydrogenKernel-KVM-${{ inputs.device }}
+          path: |
+            ./*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs and config
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs-${{ inputs.device }}
+          path: |
+            out/.config
+            out/arch/arm64/boot/Image.gz
+          if-no-files-found: ignore
+          retention-days: 7
